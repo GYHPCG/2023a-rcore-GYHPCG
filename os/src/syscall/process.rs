@@ -5,7 +5,9 @@ use crate::{
         change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
     },
 };
-
+use crate::timer::get_time_us;
+use crate::mm::translated_byte_buffer;
+// use crate::task::current_user_token;
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -37,21 +39,46 @@ pub fn sys_yield() -> isize {
     suspend_current_and_run_next();
     0
 }
+pub fn translated_physical_address(token: usize, ptr: *const u8) -> usize{
+    let page_table = PageTable::from_token(token);
+    let mut va = VirtAddr::from(ptr as usize);
+    let ppn = page_table.find_pte(va.floor()).unwrap().ppn();
+    super::PhysAddr::from(ppn).0 + va.page_offset()
 
+}
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!("kernel: sys_get_time");
-    -1
+    // trace!("kernel: sys_get_time");
+    // -1
+    let _us = get_time_us();
+    let ts = current_translated_physical_address(_ts as *const u8 ) as *mut TimeVal;
+    unsafe {
+         *ts = TimeVal {
+             sec: _us / 1_000_000,
+            usec: _us % 1_000_000,
+        };
+     }
+    0
 }
 
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    -1
+    // trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
+    // -1
+    let _ti = current_translated_physical_address(ti as *const u8 ) as *mut TaskInfo;
+    unsafe{
+    *_ti = TaskInfo{
+        status:get_current_status(),
+        syscall_times:get_syscall_times(),
+        time : (get_time_us() - get_current_start_time())/1000
+
+    };
+}
+    0
 }
 
 // YOUR JOB: Implement mmap.
