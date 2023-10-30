@@ -1,7 +1,7 @@
 //! Process management syscalls
 use crate::{
     config::MAX_SYSCALL_NUM,
-    mm::{translate_ptr, VirtAddr, VirtPageNum},
+    mm::{translated_physical_address, VirtAddr, VirtPageNum},
     task::{
         change_program_brk, current_user_token, exit_current_and_run_next, mmap, set_task_info,
         suspend_current_and_run_next, TaskStatus, munmap,
@@ -45,13 +45,13 @@ pub fn sys_yield() -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
-    trace!("kernel: sys_get_time");
-    let us = get_time_us();
-    let ktime = translate_ptr(current_user_token(), ts);
+    
+    let us_time = get_time_us();
+    let ktime = translated_physical_address(current_user_token(), ts);
     unsafe {
         *ktime = TimeVal {
-            sec: us / 1_000_000,
-            usec: us % 1_000_000,
+            sec: us_time / 1_000_000,
+            usec: us_time % 1_000_000,
         };
     }
     0
@@ -60,17 +60,14 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    trace!("kernel: sys_task_info");
-    let kti = translate_ptr(current_user_token(), _ti);
+    let kti = translated_physical_address(current_user_token(), _ti);
     set_task_info(kti);
     0
 }
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
     let start_vaddr: VirtAddr = _start.into();
     if !start_vaddr.aligned() {
-        debug!("map fail don't aligned");
         return -1;
     }
     if _port & !0x7 != 0 || _port & 0x7 == 0 {
@@ -88,10 +85,8 @@ pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
     let start_vaddr: VirtAddr = _start.into();
     if !start_vaddr.aligned() {
-        debug!("unmap fail don't aligned");
         return -1;
     }
     if _len == 0 {
