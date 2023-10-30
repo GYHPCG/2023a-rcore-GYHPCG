@@ -1,13 +1,14 @@
 //! Process management syscalls
 use crate::{
     config::MAX_SYSCALL_NUM,
+    mm::{translate_ptr, VirtAddr, VirtPageNum},
     task::{
-        change_program_brk, exit_current_and_run_next, suspend_current_and_run_next, TaskStatus,
+        change_program_brk, current_user_token, exit_current_and_run_next, mmap, set_task_info,
+        suspend_current_and_run_next, TaskStatus, munmap,
     },
+    timer::get_time_us,
 };
-use crate::timer::get_time_us;
-use crate::mm::translated_byte_buffer;
-// use crate::task::current_user_token;
+
 #[repr(C)]
 #[derive(Debug)]
 pub struct TimeVal {
@@ -19,11 +20,11 @@ pub struct TimeVal {
 #[allow(dead_code)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
 
 /// task exits and submit an exit code
@@ -39,58 +40,68 @@ pub fn sys_yield() -> isize {
     suspend_current_and_run_next();
     0
 }
-pub fn translated_physical_address(token: usize, ptr: *const u8) -> usize{
-    let page_table = PageTable::from_token(token);
-    let mut va = VirtAddr::from(ptr as usize);
-    let ppn = page_table.find_pte(va.floor()).unwrap().ppn();
-    super::PhysAddr::from(ppn).0 + va.page_offset()
 
-}
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
-    // trace!("kernel: sys_get_time");
-    // -1
-    let _us = get_time_us();
-    let ts = current_translated_physical_address(_ts as *const u8 ) as *mut TimeVal;
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
+    trace!("kernel: sys_get_time");
+    let us = get_time_us();
+    let ktime = translate_ptr(current_user_token(), ts);
     unsafe {
-         *ts = TimeVal {
-             sec: _us / 1_000_000,
-            usec: _us % 1_000_000,
+        *ktime = TimeVal {
+            sec: us / 1_000_000,
+            usec: us % 1_000_000,
         };
-     }
+    }
     0
 }
-
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    // trace!("kernel: sys_task_info NOT IMPLEMENTED YET!");
-    // -1
-    let _ti = current_translated_physical_address(ti as *const u8 ) as *mut TaskInfo;
-    unsafe{
-    *_ti = TaskInfo{
-        status:get_current_status(),
-        syscall_times:get_syscall_times(),
-        time : (get_time_us() - get_current_start_time())/1000
-
-    };
-}
+    trace!("kernel: sys_task_info");
+    let kti = translate_ptr(current_user_token(), _ti);
+    set_task_info(kti);
     0
 }
-
 // YOUR JOB: Implement mmap.
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
     trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+    let start_vaddr: VirtAddr = _start.into();
+    if !start_vaddr.aligned() {
+        debug!("map fail don't aligned");
+        return -1;
+    }
+    if _port & !0x7 != 0 || _port & 0x7 == 0 {
+        return -1;
+    }
+    if _len == 0 {
+        return 0;
+    }
+    let end_vaddr: VirtAddr = (_start + _len).into();
+    let start_vpn: VirtPageNum = start_vaddr.into();
+    let end_vpn: VirtPageNum = (end_vaddr).ceil();
+
+    mmap(start_vpn, end_vpn, _port)
 }
 
 // YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
     trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+    let start_vaddr: VirtAddr = _start.into();
+    if !start_vaddr.aligned() {
+        debug!("unmap fail don't aligned");
+        return -1;
+    }
+    if _len == 0 {
+        return 0;
+    }
+    let end_vaddr: VirtAddr = (_start + _len).into();
+    let start_vpn: VirtPageNum = start_vaddr.into();
+    let end_vpn: VirtPageNum = (end_vaddr).ceil();
+
+    munmap(start_vpn, end_vpn)
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

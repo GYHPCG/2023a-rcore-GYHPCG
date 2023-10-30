@@ -15,6 +15,7 @@ mod switch;
 mod task;
 
 use crate::loader::{get_app_data, get_num_app};
+use crate::mm::VirtPageNum;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::vec::Vec;
@@ -23,6 +24,10 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+
+use crate::syscall::TaskInfo;
+
+use crate::timer::get_time_us;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -80,6 +85,10 @@ impl TaskManager {
         let next_task = &mut inner.tasks[0];
         next_task.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+
+        // 保存第一次调度的时间
+        next_task.start_time = get_time_us() / 1000;
+
         drop(inner);
         let mut _unused = TaskContext::zero_init();
         // before this, we should drop local variables that must be dropped manually
@@ -143,6 +152,18 @@ impl TaskManager {
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+
+            let next_task_tcb = &mut inner.tasks[next];
+
+            if next_task_tcb.start_time == 0 {
+                next_task_tcb.start_time = get_time_us() / 1000;
+
+                // debug!(
+                //     "set task = {:#x} start_time = {:#x}",
+                //     next, next_task_tcb.start_time
+                // );
+            }
+
             drop(inner);
             // before this, we should drop local variables that must be dropped manually
             unsafe {
@@ -152,6 +173,74 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    fn inscrease_syscall_times(&self, syscall_id: usize) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let curr_task_tcb = &mut inner.tasks[current];
+
+        match syscall_id {
+            64 => curr_task_tcb.syscall_times[0] += 1,
+            93 => curr_task_tcb.syscall_times[1] += 1,
+            124 => curr_task_tcb.syscall_times[2] += 1,
+            169 => curr_task_tcb.syscall_times[3] += 1,
+            410 => curr_task_tcb.syscall_times[4] += 1,
+            _ => {}
+        }
+
+        drop(inner);
+    }
+
+    fn set_task_info(&self, task_info: *mut TaskInfo) {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let curr_task_tcb = &mut inner.tasks[current];
+
+        let curr_time = get_time_us() / 1000;
+
+        // debug!(
+        //     "task info current = {:#x} curr_time() = {:#x} curr start_time = {:#x}",
+        //     current, curr_time, curr_task_tcb.start_time
+        // );
+
+        unsafe {
+            (*task_info).time = curr_time - curr_task_tcb.start_time;
+            // (*task_info)
+            //     .syscall_times
+            //     .copy_from_slice(&curr_task_tcb.syscall_times);
+
+            (*task_info).syscall_times[64] = curr_task_tcb.syscall_times[0];
+            (*task_info).syscall_times[93] = curr_task_tcb.syscall_times[1];
+            (*task_info).syscall_times[124] = curr_task_tcb.syscall_times[2];
+            (*task_info).syscall_times[169] = curr_task_tcb.syscall_times[3];
+            (*task_info).syscall_times[410] = curr_task_tcb.syscall_times[4];
+
+            (*task_info).status = TaskStatus::Running;
+        }
+
+        // task_info.time = curr_time - curr_task_tcb.start_time;
+        // task_info
+        //     .syscall_times
+        //     .copy_from_slice(&curr_task_tcb.syscall_times);
+
+        drop(inner);
+    }
+
+    /// mmap
+    pub fn mmap(&self, start_vpn: VirtPageNum, end_vpn: VirtPageNum, port: usize) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let curr_task_tcb = &mut inner.tasks[current];
+        curr_task_tcb.memory_set.mmap(start_vpn, end_vpn, port)
+    }
+
+    /// munmap
+    pub fn munmap(&self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let curr_task_tcb = &mut inner.tasks[current];
+        curr_task_tcb.memory_set.munmap(start_vpn, end_vpn)
     }
 }
 
@@ -201,4 +290,24 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// 增加syscall调用次数
+pub fn syscall_inc(syscall_id: usize) {
+    TASK_MANAGER.inscrease_syscall_times(syscall_id);
+}
+
+/// 设置taskinfo
+pub fn set_task_info(task_info: *mut TaskInfo) {
+    TASK_MANAGER.set_task_info(task_info);
+}
+
+/// 为当前任务申请内存
+pub fn mmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum, port: usize) -> isize {
+    TASK_MANAGER.mmap(start_vpn, end_vpn, port)
+}
+
+/// 释放内存
+pub fn munmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+    TASK_MANAGER.munmap(start_vpn, end_vpn)
 }
