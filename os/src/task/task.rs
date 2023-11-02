@@ -15,13 +15,13 @@ pub struct TaskControlBlock {
     pub task_status: TaskStatus,
 
     /// Application address space
-    pub memory_set: MemorySet,
+    pub memory_set: MemorySet,  //增加地址空间的设置
 
     /// The phys page number of trap context
-    pub trap_cx_ppn: PhysPageNum,
-
+    pub trap_cx_ppn: PhysPageNum, //TrapContext的在自身地址空间中的物理页帧，根据恒等映射原
+                                  //则，内核可以用该地址访问相应的Trapcontext
     /// The size(top addr) of program which is loaded from elf file
-    pub base_size: usize,
+    pub base_size: usize, //user_sp位置
 
     /// Heap bottom
     pub heap_bottom: usize,
@@ -45,6 +45,7 @@ impl TaskControlBlock {
         self.memory_set.token()
     }
     /// Based on the elf info in program, build the contents of task in a new address space
+    /// 根据elf_data构建TaskControlBlock
     pub fn new(elf_data: &[u8], app_id: usize) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
@@ -54,7 +55,9 @@ impl TaskControlBlock {
             .ppn();
         let task_status = TaskStatus::Ready;
         // map a kernel-stack in kernel space
+         //获取内核堆栈地址，相关实现在os/src/config.rs
         let (kernel_stack_bottom, kernel_stack_top) = kernel_stack_position(app_id);
+         //为用户程序的内核堆栈分配页帧，采用Frame模式
         KERNEL_SPACE.exclusive_access().insert_framed_area(
             kernel_stack_bottom.into(),
             kernel_stack_top.into(),
@@ -74,7 +77,7 @@ impl TaskControlBlock {
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
-        *trap_cx = TrapContext::app_init_context(
+        *trap_cx = TrapContext::app_init_context(  //为用户程序的内核堆栈分配页帧，采用Frame模式
             entry_point,
             user_sp,
             KERNEL_SPACE.exclusive_access().token(),
