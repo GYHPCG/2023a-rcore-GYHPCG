@@ -11,6 +11,8 @@ pub fn get_num_app() -> usize {
     unsafe { (_num_app as usize as *const usize).read_volatile() }
 }
 /// get applications data
+/// task可以通过虚拟页来访问对应的内容,因此只需要
+/// 在载入的时候将存放程序的位置作为参数建立task的地址空间就可以了
 pub fn get_app_data(app_id: usize) -> &'static [u8] {
     extern "C" {
         fn _num_app();

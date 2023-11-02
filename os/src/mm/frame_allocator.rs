@@ -18,7 +18,7 @@ impl FrameTracker {
     pub fn new(ppn: PhysPageNum) -> Self {
         // page cleaning
         let bytes_array = ppn.get_bytes_array();
-        for i in bytes_array {
+        for i in bytes_array {  // 将对应的页帧清空。
             *i = 0;
         }
         Self { ppn }
@@ -36,19 +36,24 @@ impl Drop for FrameTracker {
         frame_dealloc(self.ppn);
     }
 }
-
+/// 分配空闲物理页帧与释放已用页帧
+// 描述一个物理页帧管理器需要提供哪些功能：
 trait FrameAllocator {
     fn new() -> Self;
     fn alloc(&mut self) -> Option<PhysPageNum>;
     fn dealloc(&mut self, ppn: PhysPageNum);
 }
 /// an implementation for frame allocator
-pub struct StackFrameAllocator {
-    current: usize,
-    end: usize,
-    recycled: Vec<usize>,
-}
+/// 栈式物理页帧管理策略
 
+pub struct StackFrameAllocator {
+    current: usize, // 空闲内存的起始物理号
+    end: usize,      // 空闲内存的结束物理号
+    recycled: Vec<usize>, // 后入先出的方式保存了被回收的物理页号
+}
+/// [current,end)表示从未使用过的且可用的物理页帧号，recycled用来存放被回收的物理页，
+/// 当需要分配新的页帧的时候，优先从recycled中获取页帧，
+/// 如果recycled为空，再从[current,end)区域分配可用帧。当页帧被回收的时候，将该栈帧推入recycled中
 impl StackFrameAllocator {
     pub fn init(&mut self, l: PhysPageNum, r: PhysPageNum) {
         self.current = l.0;

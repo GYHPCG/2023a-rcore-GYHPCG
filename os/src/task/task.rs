@@ -51,7 +51,7 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
 
     /// Application address space
-    pub memory_set: MemorySet,
+    pub memory_set: MemorySet,  //增加地址空间的设置
 
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
