@@ -1,5 +1,4 @@
 //! Implementation of physical and virtual address and page number.
-//！建立页与地址之间的转换关系
 use super::PageTableEntry;
 use crate::config::{PAGE_SIZE, PAGE_SIZE_BITS};
 use core::fmt::{self, Debug, Formatter};
@@ -94,9 +93,6 @@ impl From<VirtPageNum> for usize {
     }
 }
 /// virtual address impl
-/// 为各种结构构建方法，提供虚拟页与虚拟地址，物理页与物理地址间的转换方法。
-/// 其中floor()返回该地址单元所在的页,
-/// 若地址单元为某页的第一个单元，则ceil（）返回其所在的页，否则返回下一页。
 impl VirtAddr {
     /// Get the (floor) virtual page number
     pub fn floor(&self) -> VirtPageNum {
@@ -158,7 +154,7 @@ impl From<PhysPageNum> for PhysAddr {
         Self(v.0 << PAGE_SIZE_BITS)
     }
 }
- // 该函数用来把一个虚拟页号拆解成一级页号、二级页号和三级页号，返回一个三元数组
+
 impl VirtPageNum {
     /// Get the indexes of the page table entry
     pub fn indexes(&self) -> [usize; 3] {
@@ -179,8 +175,6 @@ impl PhysAddr {
         unsafe { (self.0 as *mut T).as_mut().unwrap() }
     }
 }
-// 只需要查表就可以找到对应的物理页帧，当目标物理页帧存放的是页表的时候，我们希望
-// 以pte指针的形式来访问它；当目标页帧存放程序数据的时候，我们则希望能够按指定的类型来访问它
 impl PhysPageNum {
     /// Get the reference of page table(array of ptes)
     pub fn get_pte_array(&self) -> &'static mut [PageTableEntry] {
@@ -200,7 +194,6 @@ impl PhysPageNum {
 }
 
 /// iterator for phy/virt page number
-/// 表示连续的一段虚拟页
 pub trait StepByOne {
     /// step by one element(page number)
     fn step(&mut self);

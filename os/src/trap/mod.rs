@@ -39,7 +39,7 @@ fn set_kernel_trap_entry() {
         stvec::write(trap_from_kernel as usize, TrapMode::Direct);
     }
 }
-/// 用户程序中断的入口地址：
+
 fn set_user_trap_entry() {
     unsafe {
         stvec::write(TRAMPOLINE as usize, TrapMode::Direct);

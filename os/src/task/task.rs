@@ -1,17 +1,20 @@
 //! Types related to task management & Functions for completely changing TCB
 use super::TaskContext;
+use alloc::sync::{Arc, Weak};
+use alloc::vec::Vec;
+use core::cell::RefMut;
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
 use crate::config::TRAP_CONTEXT_BASE;
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
-use alloc::sync::{Arc, Weak};
-use alloc::vec::Vec;
-use core::cell::RefMut;
 
+
+const PRIOORITYINIT: u8 = 16;
 /// Task control block structure
 ///
 /// Directly save the contents that will not change during running
+
 pub struct TaskControlBlock {
     // Immutable
     /// Process identifier
@@ -51,7 +54,7 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
 
     /// Application address space
-    pub memory_set: MemorySet,  //增加地址空间的设置
+    pub memory_set: MemorySet,
 
     /// Parent process of the current process.
     /// Weak will not affect the reference count of the parent
@@ -68,6 +71,12 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// priority
+    pub priority: u8, //lab3 添加
+
+    /// stride
+    pub stride: u32, //lab3 添加
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +127,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    priority: PRIOORITYINIT, //初始化优先级
+                    stride: 0, //初始化stride
                 })
             },
         };
@@ -144,6 +155,8 @@ impl TaskControlBlock {
 
         // **** access current TCB exclusively
         let mut inner = self.inner_exclusive_access();
+        //init priority
+        inner.priority = PRIOORITYINIT;
         // substitute memory_set
         inner.memory_set = memory_set;
         // update trap_cx ppn
@@ -191,6 +204,8 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    priority: parent_inner.priority, //lab3添加
+                    stride: parent_inner.stride, //lab3添加
                 })
             },
         });
@@ -238,7 +253,7 @@ impl TaskControlBlock {
     }
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 /// task status: UnInit, Ready, Running, Exited
 pub enum TaskStatus {
     /// uninitialized

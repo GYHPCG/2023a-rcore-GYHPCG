@@ -7,6 +7,8 @@
 use super::__switch;
 use super::{fetch_task, TaskStatus};
 use super::{TaskContext, TaskControlBlock};
+use crate::config::BIG_STRIDE;
+use crate::mm::VirtPageNum;
 use crate::sync::UPSafeCell;
 use crate::trap::TrapContext;
 use alloc::sync::Arc;
@@ -60,7 +62,16 @@ pub fn run_tasks() {
             // access coming task TCB exclusively
             let mut task_inner = task.inner_exclusive_access();
             let next_task_cx_ptr = &task_inner.task_cx as *const TaskContext;
+
+            debug!(
+                "fetch task pid == {} , status == {:?}",
+                task.pid.0, task_inner.task_status
+            );
+
             task_inner.task_status = TaskStatus::Running;
+
+            task_inner.stride += BIG_STRIDE / task_inner.priority as u32;
+
             // release coming task_inner manually
             drop(task_inner);
             // release coming task TCB manually
@@ -108,4 +119,18 @@ pub fn schedule(switched_task_cx_ptr: *mut TaskContext) {
     unsafe {
         __switch(switched_task_cx_ptr, idle_task_cx_ptr);
     }
+}
+
+/// 为当前进程申请内存
+pub fn pro_mmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum, port: usize) -> isize {
+    let task = current_task().unwrap();
+    let val = task.inner_exclusive_access().memory_set.mmap(start_vpn, end_vpn, port);
+    val
+}
+
+/// 释放当前进程所拥有的内存
+pub fn pro_munmap(start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+    let task = current_task().unwrap();
+    let val = task.inner_exclusive_access().memory_set.munmap(start_vpn, end_vpn);
+    val
 }

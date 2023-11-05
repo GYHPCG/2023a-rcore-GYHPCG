@@ -29,29 +29,29 @@ pub struct PageTableEntry {
 
 impl PageTableEntry {
     /// Create a new page table entry
-    pub fn new(ppn: PhysPageNum, flags: PTEFlags) -> Self {  //根据物理页帧号和标记位构建一个PTE
+    pub fn new(ppn: PhysPageNum, flags: PTEFlags) -> Self {
         PageTableEntry {
             bits: ppn.0 << 10 | flags.bits as usize,
         }
     }
     /// Create an empty page table entry
-    pub fn empty() -> Self {  //创建一个空的PTE
+    pub fn empty() -> Self {
         PageTableEntry { bits: 0 }
     }
     /// Get the physical page number from the page table entry
-    pub fn ppn(&self) -> PhysPageNum { //获取PTE中的物理页帧号
+    pub fn ppn(&self) -> PhysPageNum {
         (self.bits >> 10 & ((1usize << 44) - 1)).into()
     }
     /// Get the flags from the page table entry
-    pub fn flags(&self) -> PTEFlags { //获取PTE中的标记位
+    pub fn flags(&self) -> PTEFlags {
         PTEFlags::from_bits(self.bits as u8).unwrap()
     }
     /// The page pointered by page table entry is valid?
-    pub fn is_valid(&self) -> bool {   //判断PTE是否有效
+    pub fn is_valid(&self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }
     /// The page pointered by page table entry is readable?
-    pub fn readable(&self) -> bool { 
+    pub fn readable(&self) -> bool {
         (self.flags() & PTEFlags::R) != PTEFlags::empty()
     }
     /// The page pointered by page table entry is writable?
@@ -88,7 +88,6 @@ impl PageTable {
         }
     }
     /// Find PageTableEntry by VirtPageNum, create a frame for a 4KB page table if not exist
-    /// 返回vpn对应的pte
     fn find_pte_create(&mut self, vpn: VirtPageNum) -> Option<&mut PageTableEntry> {
         let idxs = vpn.indexes();
         let mut ppn = self.root_ppn;
@@ -127,7 +126,6 @@ impl PageTable {
         result
     }
     /// set the map between virtual page number and physical page number
-    /// 为页表的虚拟页vpn增加一个对应的页表项，物理页号为ppn，标记为为flags
     #[allow(unused)]
     pub fn map(&mut self, vpn: VirtPageNum, ppn: PhysPageNum, flags: PTEFlags) {
         let pte = self.find_pte_create(vpn).unwrap();
@@ -135,7 +133,6 @@ impl PageTable {
         *pte = PageTableEntry::new(ppn, flags | PTEFlags::V);
     }
     /// remove the map between virtual page number and physical page number
-    /// 释放掉vpn对应的页表项
     #[allow(unused)]
     pub fn unmap(&mut self, vpn: VirtPageNum) {
         let pte = self.find_pte(vpn).unwrap();
@@ -158,7 +155,6 @@ impl PageTable {
         })
     }
     /// get the token from the page table
-    /// 获取页表的根页表地址
     pub fn token(&self) -> usize {
         8usize << 60 | self.root_ppn.0
     }
@@ -217,14 +213,12 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .unwrap()
         .get_mut()
 }
-/// 虚拟地址到物理地址的转换方法
-// 
+
+/// 获取内核态的指针
 pub fn translated_physical_address<T>(token: usize, ptr: *const T) -> *mut T {
-    
     let page_table: PageTable = PageTable::from_token(token);
     let mut_va: VirtAddr = VirtAddr::from(ptr as usize);
     let ppn: PhysAddr = page_table.translate(mut_va.floor()).unwrap().ppn().into();
 
     (super::PhysAddr::from(ppn).0 + mut_va.page_offset()) as * mut T
-
 }

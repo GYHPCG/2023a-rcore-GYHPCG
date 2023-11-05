@@ -4,11 +4,12 @@ use alloc::sync::Arc;
 use crate::{
     config::MAX_SYSCALL_NUM,
     loader::get_app_data_by_name,
-    mm::{translated_refmut, translated_str},
+    mm::{translated_physical_address, translated_refmut, translated_str, VirtAddr, VirtPageNum},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next, TaskStatus,
+        add_task, current_task, current_user_token, exit_current_and_run_next, pro_mmap, pro_munmap,
+        suspend_current_and_run_next, TaskControlBlock, TaskStatus,
     },
+    timer::get_time_us,
 };
 
 #[repr(C)]
@@ -79,7 +80,11 @@ pub fn sys_exec(path: *const u8) -> isize {
 /// If there is not a child process whose pid is same as given, return -1.
 /// Else if there is a child process but it is still running, return -2.
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
-    trace!("kernel::pid[{}] sys_waitpid [{}]", current_task().unwrap().pid.0, pid);
+    trace!(
+        "kernel::pid[{}] sys_waitpid [{}]",
+        current_task().unwrap().pid.0,
+        pid
+    );
     let task = current_task().unwrap();
     // find a child process
 
@@ -118,7 +123,6 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
 pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
-    
     let us_time = get_time_us();
     let tmp = 1000000;
     let kernel_time = translated_physical_address(current_user_token(), ts);
@@ -128,37 +132,40 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     }
     0
 }
-
 /// YOUR JOB: Finish sys_task_info to pass testcases
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TaskInfo`] is splitted by two pages ?
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
-    let kernel_ti = translated_physical_address(current_user_token(), _ti);
-    set_task_info(kernel_ti);
-    0
+    trace!(
+        "kernel:pid[{}] sys_task_info NOT IMPLEMENTED",
+        current_task().unwrap().pid.0
+    );
+    -1 
 }
+
 // YOUR JOB: Implement mmap.
-/// 申请长度为_len字节的物理内存，并映射到_start开始的虚拟内存，内存属性为port
 pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+   
     let start_vaddr: VirtAddr = _start.into();
     // start 没有按页大小对齐 port & !0x7 != 0 (port 其余位必须为0) port & 0x7 = 0 (这样的内存无意义) 
     if (start_vaddr.aligned() == false) ||_port & !0x7 != 0 || _port & 0x7 == 0 {
         return -1;
     }
     let end_vaddr: VirtAddr = (_start + _len).into();
-    mmap(start_vaddr.into(), end_vaddr.ceil() as VirtPageNum, _port)
+    pro_mmap(start_vaddr.into(), end_vaddr.ceil() as VirtPageNum, _port)
+
 }
 
-/// YOUR JOB: Implement munmap.
+// YOUR JOB: Implement munmap.
 pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+
     let start_vir_addr: VirtAddr = _start.into();
     if start_vir_addr.aligned() == false{
         return -1;
     }
     let end_vir_addr: VirtAddr = (_start + _len).into();
-    munmap(start_vir_addr.into(), end_vir_addr.ceil() as VirtPageNum)
+    pro_munmap(start_vir_addr.into(), end_vir_addr.ceil() as VirtPageNum)
 }
-
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {
     trace!("kernel:pid[{}] sys_sbrk", current_task().unwrap().pid.0);
@@ -171,19 +178,47 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
+/// 根据exec()中的参数创建新的地址空间memory_set。
+/// 创建新的TaskControlBlock，模仿fork()进行初始化赋值工作，
+/// 把复制地址空间的操作修改为把地址空间赋值为memory_set
 pub fn sys_spawn(_path: *const u8) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, _path);
+
+    if let Some(data) = get_app_data_by_name(path.as_str()) {
+        //当前进程
+        let current_task = current_task().unwrap();
+        let mut current_inner = current_task.inner_exclusive_access();
+        //新进程
+        let new_task: Arc<TaskControlBlock> = Arc::new(TaskControlBlock::new(data));
+        let mut new_inner = new_task.inner_exclusive_access();
+        //将当前进程设为新进程的子进程
+        new_inner.parent = Some(Arc::downgrade(&current_task));
+        current_inner.children.push(new_task.clone());
+
+        drop(new_inner);
+        drop(current_inner);
+        
+        let new_pid = new_task.pid.0;
+        add_task(new_task);
+        new_pid as isize
+
+    } else {
+
+        -1
+    }
 }
 
 // YOUR JOB: Set task priority.
 pub fn sys_set_priority(_prio: isize) -> isize {
-    trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
-        current_task().unwrap().pid.0
-    );
-    -1
+    if _prio <= 1 {
+        return -1;
+    }
+
+    let current_task = current_task().unwrap();
+    let mut current_task_inner = current_task.inner_exclusive_access();
+    current_task_inner.priority = _prio as u8;
+    drop(current_task_inner);
+    
+     _prio 
 }
