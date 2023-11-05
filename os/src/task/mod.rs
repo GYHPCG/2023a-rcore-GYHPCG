@@ -130,6 +130,7 @@ impl TaskManager {
             if inner.tasks[next].start_time == 0 {
                 inner.tasks[next].start_time = get_time_us();
             }
+            
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
